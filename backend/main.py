@@ -11,7 +11,6 @@ from routers import auth, expenses, categories, budgets, dashboard
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
     yield
 
 limiter = Limiter(key_func=get_remote_address)
