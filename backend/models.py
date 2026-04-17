@@ -46,6 +46,7 @@ class Category(Base):
 class Expense(Base):
     __tablename__ = "expenses"
     id = Column(Integer, primary_key=True, index=True)
+    budget_id = Column(Integer, ForeignKey("budgets.id"), nullable=True)
     amount = Column(Float, nullable=False)
     notes = Column(Text, nullable=True)
     date = Column(DateTime(timezone=True), nullable=False)
@@ -56,11 +57,13 @@ class Expense(Base):
 
     user = relationship("User", back_populates="expenses")
     category = relationship("Category", back_populates="expenses")
+    budget = relationship("Budget", back_populates="expenses")
 
 class Budget(Base):
     __tablename__ = "budgets"
     id = Column(Integer, primary_key=True, index=True)
     total_amount = Column(Float, nullable=False)
+    spent = Column(Float, nullable=True)
     months = Column(Integer, nullable=False)
     label = Column(String(200), nullable=True)
     start_date = Column(DateTime(timezone=True), nullable=False)
@@ -68,3 +71,4 @@ class Budget(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="budgets")
+    expenses = relationship("Expense", back_populates="budget")
