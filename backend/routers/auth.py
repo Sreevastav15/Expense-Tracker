@@ -12,9 +12,11 @@ from auth import (
 )
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+import logging
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
+logger = logging.getLogger(__name__)
 
 DEFAULT_CATEGORIES = [
     {"name": "Food & Dining", "icon": "🍔", "color": "#f59e0b"},
@@ -49,6 +51,9 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: dict
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
 
 @router.post("/signup", response_model=TokenResponse)
 def signup(data: SignupRequest, db: Session = Depends(get_db)):
@@ -89,7 +94,9 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
@@ -125,3 +132,42 @@ def update_profile(
     db.commit()
     db.refresh(current_user)
     return {"id": current_user.id, "name": current_user.name, "email": current_user.email, "currency": current_user.currency}
+
+@router.post("/forgot-password")
+def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Initiates a password reset flow. For security, always returns 200
+    regardless of whether the email exists (prevents user enumeration).
+
+    In production: integrate an email provider (SendGrid, SES, etc.) to
+    send a real reset link. The token below is a short-lived JWT that
+    would be included in the reset URL, e.g.:
+        https://yourapp.com/reset-password?token=<reset_token>
+
+    The /reset-password endpoint (not yet implemented) would then verify
+    the token and allow the user to set a new password.
+    """
+    user = db.query(models.User).filter(models.User.email == data.email).first()
+
+    if user and user.is_active:
+        # Generate a short-lived reset token (15 minutes)
+        reset_token = create_access_token(
+            {"sub": str(user.id), "type": "password_reset"},
+            expires_delta=timedelta(minutes=15)
+        )
+
+        # ── TODO: Send email ───────────────────────────────────────────
+        # In production, call your email provider here:
+        #
+        # send_email(
+        #     to=user.email,
+        #     subject="Reset your Spendly password",
+        #     body=f"Click here to reset: https://yourapp.com/reset-password?token={reset_token}"
+        # )
+        #
+        # For now, log the token so you can test it locally:
+        logger.warning(f"[DEV] Password reset token for {user.email}: {reset_token}")
+        # ──────────────────────────────────────────────────────────────
+
+    # Always return 200 to avoid leaking which emails exist
+    return {"message": "If an account with that email exists, a reset link has been sent."}

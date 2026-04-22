@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { authApi } from '../api/services'
 import { CURRENCIES, getErrorMessage } from '../utils/helpers'
 import toast from 'react-hot-toast'
-import { TrendingDown, Eye, EyeOff, ArrowRight, Sparkles } from 'lucide-react'
+import { TrendingDown, Eye, EyeOff, ArrowRight, Sparkles, ArrowLeft, Mail } from 'lucide-react'
 
 const INPUT = 'w-full bg-gray-800 border border-gray-700 focus:border-indigo-500 text-white placeholder:text-gray-500 rounded-xl px-4 py-2.5 outline-none transition-colors text-sm'
 const LABEL = 'block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5'
@@ -16,14 +16,112 @@ const FEATURES = [
   { icon: '🔍', label: 'Advanced filtering & search' },
 ]
 
+// ─── Forgot Password Panel ────────────────────────────────────────
+function ForgotPasswordPanel({ onBack }) {
+  const [email, setEmail]     = useState('')
+  const [loading, setLoading] = useState(false)
+  const [sent, setSent]       = useState(false)
+
+  const handleSubmit = async e => {
+    e.preventDefault()
+    if (!email.trim()) { toast.error('Please enter your email address'); return }
+    setLoading(true)
+    try {
+      await authApi.forgotPassword(email.trim())
+      setSent(true)
+      toast.success('Reset link sent! Check your inbox.')
+    } catch (err) {
+      const msg = getErrorMessage(err)
+      // Provide a user-friendly message for "not found" errors
+      if (err?.response?.status === 404) {
+        toast.error('No account found with that email address.')
+      } else {
+        toast.error(msg)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="w-full max-w-md animate-slide-up">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 shadow-2xl shadow-black/50">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors mb-6"
+        >
+          <ArrowLeft size={14} /> Back to sign in
+        </button>
+
+        {sent ? (
+          <div className="text-center py-4">
+            <div className="w-14 h-14 bg-indigo-600/15 border border-indigo-600/25 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Mail size={24} className="text-indigo-400" />
+            </div>
+            <h1 className="text-xl font-bold text-white mb-2">Check your inbox</h1>
+            <p className="text-sm text-gray-400 leading-relaxed">
+              If an account exists for <span className="text-white font-medium">{email}</span>, a password reset link has been sent. Check your spam folder if you don't see it.
+            </p>
+            <button
+              onClick={onBack}
+              className="mt-6 w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-3 rounded-xl transition-colors"
+            >
+              Back to Sign In
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="mb-7">
+              <h1 className="text-2xl font-bold text-white">Forgot password?</h1>
+              <p className="text-sm text-gray-400 mt-1">
+                Enter your email and we'll send you a reset link
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className={LABEL}>Email Address</label>
+                <input
+                  className={INPUT}
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2"
+              >
+                {loading
+                  ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <>Send Reset Link <ArrowRight size={16} /></>
+                }
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Auth Page ───────────────────────────────────────────────
 export default function AuthPage({ mode }) {
   const isLogin = mode === 'login'
   const { login } = useAuth()
   const navigate   = useNavigate()
-  const [loading, setLoading]   = useState(false)
-  const [showPass, setShowPass] = useState(false)
-  const [form, setForm]         = useState({ name: '', email: '', password: '', currency: 'USD' })
+  const [loading, setLoading]       = useState(false)
+  const [showPass, setShowPass]     = useState(false)
+  const [showForgot, setShowForgot] = useState(false)
+  const [form, setForm]             = useState({ name: '', email: '', password: '', currency: 'USD' })
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  // Return to login when mode changes
+  if (!isLogin && showForgot) setShowForgot(false)
 
   const handleSubmit = async e => {
     e.preventDefault()
@@ -40,7 +138,19 @@ export default function AuthPage({ mode }) {
       toast.success(isLogin ? 'Welcome back!' : 'Account created!')
       navigate('/')
     } catch (err) {
-      toast.error(getErrorMessage(err))
+      const status = err?.response?.status
+      const detail = err?.response?.data?.detail || ''
+
+      // Specific, actionable toast messages for common auth errors
+      if (status === 401 || detail.toLowerCase().includes('invalid')) {
+        toast.error('Incorrect email or password. Please try again.')
+      } else if (status === 400 && detail.toLowerCase().includes('already')) {
+        toast.error('An account with this email already exists. Try signing in instead.')
+      } else if (status === 403) {
+        toast.error('Your account has been disabled. Please contact support.')
+      } else {
+        toast.error(getErrorMessage(err))
+      }
     } finally {
       setLoading(false)
     }
@@ -93,93 +203,111 @@ export default function AuthPage({ mode }) {
 
       {/* ── Right form panel ── */}
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-md animate-slide-up">
 
-          {/* Mobile logo */}
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg">
-              <TrendingDown size={19} className="text-white" />
+        {/* Mobile logo */}
+        {!showForgot && (
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 lg:hidden flex items-center gap-3">
+            <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+              <TrendingDown size={15} className="text-white" />
             </div>
-            <span className="font-bold text-white text-2xl">Spendly</span>
+            <span className="font-bold text-white text-xl">Spendly</span>
           </div>
+        )}
 
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 shadow-2xl shadow-black/50">
-            <div className="mb-7">
-              <h1 className="text-2xl font-bold text-white">
-                {isLogin ? 'Welcome back' : 'Create account'}
-              </h1>
-              <p className="text-sm text-gray-400 mt-1">
-                {isLogin ? 'Sign in to your Spendly account' : 'Start tracking your expenses today'}
+        {showForgot ? (
+          <ForgotPasswordPanel onBack={() => setShowForgot(false)} />
+        ) : (
+          <div className="w-full max-w-md animate-slide-up">
+
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 shadow-2xl shadow-black/50">
+              <div className="mb-7">
+                <h1 className="text-2xl font-bold text-white">
+                  {isLogin ? 'Welcome back' : 'Create account'}
+                </h1>
+                <p className="text-sm text-gray-400 mt-1">
+                  {isLogin ? 'Sign in to your Spendly account' : 'Start tracking your expenses today'}
+                </p>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {!isLogin && (
+                  <div>
+                    <label className={LABEL}>Full Name</label>
+                    <input className={INPUT} type="text" placeholder="Alex Johnson"
+                      value={form.name} onChange={e => set('name', e.target.value)} required />
+                  </div>
+                )}
+
+                <div>
+                  <label className={LABEL}>Email Address</label>
+                  <input className={INPUT} type="email" placeholder="you@example.com"
+                    value={form.email} onChange={e => set('email', e.target.value)} required />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className={LABEL} style={{ marginBottom: 0 }}>Password</label>
+                    {isLogin && (
+                      <button
+                        type="button"
+                        onClick={() => setShowForgot(true)}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      className={INPUT + ' pr-12'}
+                      type={showPass ? 'text' : 'password'}
+                      placeholder={isLogin ? '••••••••' : 'Minimum 6 characters'}
+                      value={form.password} onChange={e => set('password', e.target.value)} required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass(p => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-300"
+                    >
+                      {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                {!isLogin && (
+                  <div>
+                    <label className={LABEL}>Currency</label>
+                    <select className={INPUT} value={form.currency} onChange={e => set('currency', e.target.value)}>
+                      {CURRENCIES.map(c => (
+                        <option key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <button
+                  type="submit" disabled={loading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2"
+                >
+                  {loading
+                    ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <>{isLogin ? 'Sign In' : 'Create Account'} <ArrowRight size={16} /></>
+                  }
+                </button>
+              </form>
+
+              <p className="mt-6 text-center text-sm text-gray-500">
+                {isLogin ? "Don't have an account? " : 'Already have an account? '}
+                <Link
+                  to={isLogin ? '/signup' : '/login'}
+                  className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+                >
+                  {isLogin ? 'Sign up' : 'Sign in'}
+                </Link>
               </p>
             </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {!isLogin && (
-                <div>
-                  <label className={LABEL}>Full Name</label>
-                  <input className={INPUT} type="text" placeholder="Alex Johnson"
-                    value={form.name} onChange={e => set('name', e.target.value)} required />
-                </div>
-              )}
-
-              <div>
-                <label className={LABEL}>Email Address</label>
-                <input className={INPUT} type="email" placeholder="you@example.com"
-                  value={form.email} onChange={e => set('email', e.target.value)} required />
-              </div>
-
-              <div>
-                <label className={LABEL}>Password</label>
-                <div className="relative">
-                  <input
-                    className={INPUT + ' pr-12'}
-                    type={showPass ? 'text' : 'password'}
-                    placeholder={isLogin ? '••••••••' : 'Minimum 6 characters'}
-                    value={form.password} onChange={e => set('password', e.target.value)} required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPass(p => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-300"
-                  >
-                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </div>
-
-              {!isLogin && (
-                <div>
-                  <label className={LABEL}>Currency</label>
-                  <select className={INPUT} value={form.currency} onChange={e => set('currency', e.target.value)}>
-                    {CURRENCIES.map(c => (
-                      <option key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <button
-                type="submit" disabled={loading}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2"
-              >
-                {loading
-                  ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  : <>{isLogin ? 'Sign In' : 'Create Account'} <ArrowRight size={16} /></>
-                }
-              </button>
-            </form>
-
-            <p className="mt-6 text-center text-sm text-gray-500">
-              {isLogin ? "Don't have an account? " : 'Already have an account? '}
-              <Link
-                to={isLogin ? '/signup' : '/login'}
-                className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
-              >
-                {isLogin ? 'Sign up' : 'Sign in'}
-              </Link>
-            </p>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { dashboardApi } from '../api/services'
+import { budgetApi } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 import { formatCurrency, formatDate, MONTH_NAMES, MONTH_NAMES_FULL } from '../utils/helpers'
 import { StatCard, Skeleton, EmptyState } from '../components/UI'
@@ -12,47 +13,56 @@ import { DollarSign, TrendingUp, Hash, ChevronLeft, ChevronRight, Receipt } from
 
 const TT = {
   contentStyle: { background: '#111827', border: '1px solid #374151', borderRadius: 10, fontFamily: 'inherit', fontSize: 13 },
-  labelStyle:   { color: '#9ca3af', fontSize: 11 },
-  itemStyle:    { color: '#fff' },
+  labelStyle: { color: '#9ca3af', fontSize: 11 },
+  itemStyle: { color: '#fff' },
 }
 
 export default function Dashboard() {
   const { user } = useAuth()
   const now = new Date()
-  const [year,  setYear]  = useState(now.getFullYear())
+  const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
-  const [data,  setData]  = useState(null)
+  const [data, setData] = useState(null)
   const [yearlyData, setYearlyData] = useState([])
+  const [budgets, setBudgets] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([dashboardApi.summary(year, month), dashboardApi.yearly()])
-      .then(([s, y]) => { setData(s.data); setYearlyData(y.data) })
+    Promise.all([
+      dashboardApi.summary(year, month),
+      dashboardApi.yearly(),
+      budgetApi.list()
+    ])
+      .then(([s, y, b]) => {
+        setData(s.data)
+        setYearlyData(y.data)
+        setBudgets(b.data)
+      })
       .finally(() => setLoading(false))
   }, [year, month])
 
   const prevMonth = () => month === 1 ? (setMonth(12), setYear(y => y - 1)) : setMonth(m => m - 1)
-  const nextMonth = () => month === 12 ? (setMonth(1),  setYear(y => y + 1)) : setMonth(m => m + 1)
+  const nextMonth = () => month === 12 ? (setMonth(1), setYear(y => y + 1)) : setMonth(m => m + 1)
 
-  const currency   = user?.currency || 'USD'
-  const trendData  = (data?.monthly_trend || []).slice(-12).map(m => ({ name: `${MONTH_NAMES[m.month-1]} ${m.year}`, total: m.total }))
+  const currency = user?.currency || 'USD'
+  const trendData = (data?.monthly_trend || []).slice(-12).map(m => ({ name: `${MONTH_NAMES[m.month - 1]} ${m.year}`, total: m.total }))
   const barGrouped = {}
   yearlyData.forEach(d => {
     if (!barGrouped[d.month]) barGrouped[d.month] = { month: MONTH_NAMES[d.month - 1] }
     barGrouped[d.month][String(d.year)] = d.total
   })
   const barData = Object.values(barGrouped)
-  const years   = [...new Set(yearlyData.map(d => d.year))].sort().slice(-2)
-  const YR_CLR  = ['#4f46e5', '#10b981']
+  const years = [...new Set(yearlyData.map(d => d.year))].sort().slice(-2)
+  const YR_CLR = ['#4f46e5', '#10b981']
 
   if (loading) return (
     <div className="space-y-6 animate-fade-in">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[0,1,2].map(i => <Skeleton key={i} className="h-28" />)}
+        {[0, 1, 2].map(i => <Skeleton key={i} className="h-28" />)}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {[0,1,2,3].map(i => <Skeleton key={i} className="h-64" />)}
+        {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-64" />)}
       </div>
     </div>
   )
@@ -81,9 +91,9 @@ export default function Dashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Total All Time"                          value={formatCurrency(data?.total_all_time || 0, currency)} icon={DollarSign} color="#4f46e5" />
-        <StatCard label={`${MONTH_NAMES_FULL[month-1]} Spending`} value={formatCurrency(data?.month_total   || 0, currency)} icon={TrendingUp}  color="#10b981" />
-        <StatCard label="Transactions This Month"                 value={data?.month_count || 0}                             icon={Hash}         color="#f59e0b" />
+        <StatCard label="Total All Time" value={formatCurrency(data?.total_all_time || 0, currency)} icon={DollarSign} color="#4f46e5" />
+        <StatCard label={`${MONTH_NAMES_FULL[month - 1]} Spending`} value={formatCurrency(data?.month_total || 0, currency)} icon={TrendingUp} color="#10b981" />
+        <StatCard label="Transactions This Month" value={data?.month_count || 0} icon={Hash} color="#f59e0b" />
       </div>
 
       {/* Charts row 1 */}
@@ -123,7 +133,7 @@ export default function Dashboard() {
               <LineChart data={trendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                 <XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v} />
+                <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={v => v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v} />
                 <Tooltip formatter={v => formatCurrency(v, currency)} {...TT} />
                 <Line type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={2.5} dot={{ fill: '#4f46e5', r: 4 }} activeDot={{ r: 6, fill: '#818cf8' }} />
               </LineChart>
@@ -137,19 +147,67 @@ export default function Dashboard() {
 
         {/* Bar */}
         <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5">
-          <h3 className="font-semibold text-white mb-4">Monthly Comparison</h3>
-          {barData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={barData} barGap={4}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v} />
-                <Tooltip formatter={v => formatCurrency(v, currency)} {...TT} />
-                <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
-                {years.map((yr, i) => <Bar key={yr} dataKey={String(yr)} fill={YR_CLR[i]} radius={[4,4,0,0]} maxBarSize={32} />)}
-              </BarChart>
-            </ResponsiveContainer>
-          ) : <EmptyState icon={Receipt} title="No comparison data" description="Track expenses across months" />}
+          <h3 className="font-semibold text-white mb-4">Allowance vs Actual</h3>
+
+          {budgets.length > 0 ? (() => {
+            // total allowance across all budgets
+            const totalMonthlyAllowance = budgets.reduce(
+              (s, b) => s + (b.monthly_allowance || 0),
+              0
+            )
+
+            let selectedTotal = 0
+            budgets.forEach((budget) => {
+              (budget.monthly_actuals || []).forEach((a) => {
+                if (a.year === year && a.month === month) {
+                  selectedTotal = a.total
+                }
+              })
+            })
+
+            const chartData = selectedTotal > 0 ? [{
+              name: `${MONTH_NAMES[month - 1]} ${year}`,
+              Actual: selectedTotal,
+              Allowance: totalMonthlyAllowance,
+            }] : []
+
+            return chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={chartData} barGap={6} style={{ background: 'transparent' }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                  <XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    formatter={(v, name) => [formatCurrency(v, currency), name]}
+                    contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 10, fontSize: 13 }}
+                    labelStyle={{ color: '#9ca3af', fontSize: 11, marginBottom: 4 }}
+                    itemStyle={{ color: '#fff' }}
+                    cursor={{ fill: 'transparent' }}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: 11, color: '#9ca3af', paddingTop: 12 }}
+                    align="center"
+                    iconType="circle"
+                    iconSize={8}
+                  />
+                  <Bar dataKey="Allowance" fill="#0cb7e670" stroke="#08c8ee" strokeWidth={1.5} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  <Bar dataKey="Actual" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState
+                icon={Receipt}
+                title="No data"
+                description="No monthly actuals available"
+              />
+            )
+          })() : (
+            <EmptyState
+              icon={Receipt}
+              title="No budget data"
+              description="Create a budget to track allowance vs actual spending"
+            />
+          )}
         </div>
 
         {/* Recent */}
@@ -183,7 +241,7 @@ export default function Dashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800">
-                  {['Category','Transactions','Amount','Share'].map((h, i) => (
+                  {['Category', 'Transactions', 'Amount', 'Share'].map((h, i) => (
                     <th key={h} className={`pb-3 text-xs text-gray-500 font-semibold uppercase tracking-wider ${i === 0 ? 'text-left' : 'text-right'}`}>{h}</th>
                   ))}
                 </tr>

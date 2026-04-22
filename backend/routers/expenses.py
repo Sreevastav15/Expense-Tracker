@@ -17,7 +17,7 @@ router = APIRouter()
 class ExpenseCreate(BaseModel):
     amount: float
     category_id: int
-    budget_id: int
+    budget_id: Optional[int]
     date: datetime
     notes: Optional[str] = None
 
@@ -73,6 +73,7 @@ def list_expenses(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     category_id: Optional[int] = None,
+    budget_id: Optional[int] = None,
     search: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
@@ -89,6 +90,8 @@ def list_expenses(
 
     if category_id:
         query = query.filter(models.Expense.category_id == category_id)
+    if budget_id:
+        query = query.filter(models.Expense.budget_id == budget_id)
     if search:
         query = query.filter(models.Expense.notes.ilike(f"%{search}%"))
     if date_from:
@@ -138,12 +141,14 @@ def create_expense(
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    budget = db.query(models.Budget).filter(
-        models.Budget.id == data.budget_id,
-        models.Budget.user_id == current_user.id
-    ).first()
-    if not budget:
-        raise HTTPException(status_code=404, detail="Budget not found")
+    budget = None
+    if data.budget_id:
+        budget = db.query(models.Budget).filter(
+            models.Budget.id == data.budget_id,
+            models.Budget.user_id == current_user.id
+        ).first()
+        if not budget:
+            raise HTTPException(status_code=404, detail="Budget not found")
 
     expense = models.Expense(
         amount=data.amount,
@@ -154,7 +159,8 @@ def create_expense(
         user_id=current_user.id
     )
 
-    budget.spent = (budget.spent or 0) + data.amount
+    if budget:
+        budget.spent = (budget.spent or 0) + data.amount
 
     db.add(expense)
     db.commit()
@@ -219,20 +225,22 @@ def update_expense(
     ).first()
 
     # Budget change
-    if data.budget_id is not None and data.budget_id != expense.budget_id:
-        new_budget = db.query(models.Budget).filter(
-            models.Budget.id == data.budget_id,
-            models.Budget.user_id == current_user.id
-        ).first()
-
-        if not new_budget:
-            raise HTTPException(status_code=404, detail="Budget not found")
-
+    if data.budget_id != expense.budget_id:
+        new_budget = None
+        if data.budget_id:
+            new_budget = db.query(models.Budget).filter(
+                models.Budget.id == data.budget_id,
+                models.Budget.user_id == current_user.id
+            ).first()
+            if not new_budget:
+                raise HTTPException(status_code=404, detail="Budget not found")
+        
         if old_budget:
             old_budget.spent = (old_budget.spent or 0) - expense.amount
-
-        new_budget.spent = (new_budget.spent or 0) + expense.amount
-
+        
+        if new_budget:
+            new_budget.spent = (new_budget.spent or 0) + expense.amount
+        
         expense.budget_id = data.budget_id
         old_budget = new_budget
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { expenseApi, categoryApi } from '../api/services'
+import { expenseApi, categoryApi, budgetApi } from '../api/services'
 import { useAuth } from '../context/AuthContext'
 import { formatCurrency, formatDate, getErrorMessage } from '../utils/helpers'
 import { PageHeader, EmptyState, ConfirmDialog, Spinner } from '../components/UI'
@@ -8,32 +8,33 @@ import toast from 'react-hot-toast'
 import { Plus, Search, Pencil, Trash2, Receipt, ChevronLeft, ChevronRight, X, SlidersHorizontal } from 'lucide-react'
 
 const SORT_OPTIONS = [
-  { value: 'date_desc',   label: 'Date (newest)' },
-  { value: 'date_asc',    label: 'Date (oldest)' },
+  { value: 'date_desc', label: 'Date (newest)' },
+  { value: 'date_asc', label: 'Date (oldest)' },
   { value: 'amount_desc', label: 'Amount (high)' },
-  { value: 'amount_asc',  label: 'Amount (low)'  },
+  { value: 'amount_asc', label: 'Amount (low)' },
 ]
 
 const INPUT = 'w-full bg-gray-800 border border-gray-700 focus:border-indigo-500 text-white placeholder:text-gray-500 rounded-xl px-3 py-2 outline-none transition-colors text-sm'
 
 export default function ExpensesPage() {
-  const { user }   = useAuth()
-  const currency   = user?.currency || 'USD'
+  const { user } = useAuth()
+  const currency = user?.currency || 'USD'
 
-  const [expenses,    setExpenses]    = useState([])
-  const [categories,  setCategories]  = useState([])
-  const [total,       setTotal]       = useState(0)
-  const [page,        setPage]        = useState(1)
-  const [pages,       setPages]       = useState(1)
-  const [loading,     setLoading]     = useState(true)
-  const [showForm,    setShowForm]    = useState(false)
+  const [expenses, setExpenses] = useState([])
+  const [budgets, setBudgets] = useState([])
+  const [categories, setCategories] = useState([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pages, setPages] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
   const [editExpense, setEditExpense] = useState(null)
-  const [deleteId,    setDeleteId]    = useState(null)
-  const [deleting,    setDeleting]    = useState(false)
+  const [deleteId, setDeleteId] = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
 
   const [filters, setFilters] = useState({
-    search: '', category_id: '', date_from: '', date_to: '',
+    search: '', category_id: '', budget_id: '', date_from: '', date_to: '',
     amount_min: '', amount_max: '', sort: 'date_desc',
   })
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -48,12 +49,13 @@ export default function ExpensesPage() {
     try {
       const res = await expenseApi.list({
         page, limit: 15, sort: filters.sort,
-        ...(debouncedSearch       && { search:      debouncedSearch }),
-        ...(filters.category_id   && { category_id: filters.category_id }),
-        ...(filters.date_from     && { date_from:   filters.date_from }),
-        ...(filters.date_to       && { date_to:     filters.date_to }),
-        ...(filters.amount_min    && { amount_min:  filters.amount_min }),
-        ...(filters.amount_max    && { amount_max:  filters.amount_max }),
+        ...(debouncedSearch     && { search:      debouncedSearch }),
+        ...(filters.category_id && { category_id: filters.category_id }),
+        ...(filters.budget_id   && { budget_id:   filters.budget_id }),
+        ...(filters.date_from   && { date_from:   filters.date_from }),
+        ...(filters.date_to     && { date_to:     filters.date_to }),
+        ...(filters.amount_min  && { amount_min:  filters.amount_min }),
+        ...(filters.amount_max  && { amount_max:  filters.amount_max }),
       })
       setExpenses(res.data.items)
       setTotal(res.data.total)
@@ -61,15 +63,23 @@ export default function ExpensesPage() {
     } catch (err) {
       toast.error(getErrorMessage(err))
     } finally { setLoading(false) }
-  }, [page, debouncedSearch, filters.category_id, filters.date_from, filters.date_to, filters.amount_min, filters.amount_max, filters.sort])
+  }, [page, debouncedSearch, filters.category_id, filters.budget_id, filters.date_from, filters.date_to, filters.amount_min, filters.amount_max, filters.sort])
 
-  useEffect(() => { categoryApi.list().then(r => setCategories(r.data)).catch(() => {}) }, [])
+  const loadBudget = async () => {
+    setLoading(true)
+    try { const r = await budgetApi.list(); setBudgets(r.data) }
+    catch (err) { toast.error(getErrorMessage(err)) }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { categoryApi.list().then(r => setCategories(r.data)).catch(() => { }) }, [])
   useEffect(() => { loadExpenses() }, [loadExpenses])
+  useEffect(() => { loadBudget() }, [])
   useEffect(() => { setPage(1) }, [filters])
 
   const setFilter    = (k, v) => setFilters(p => ({ ...p, [k]: v }))
-  const clearFilters = ()     => setFilters({ search: '', category_id: '', date_from: '', date_to: '', amount_min: '', amount_max: '', sort: 'date_desc' })
-  const hasActive    = filters.category_id || filters.date_from || filters.date_to || filters.amount_min || filters.amount_max
+  const clearFilters = ()     => setFilters({ search: '', category_id: '', budget_id: '', date_from: '', date_to: '', amount_min: '', amount_max: '', sort: 'date_desc' })
+  const hasActive    = filters.category_id || filters.budget_id || filters.date_from || filters.date_to || filters.amount_min || filters.amount_max
 
   const handleSave = async data => {
     if (editExpense) { await expenseApi.update(editExpense.id, data); toast.success('Expense updated') }
@@ -84,6 +94,8 @@ export default function ExpensesPage() {
     catch (err) { toast.error(getErrorMessage(err)) }
     finally { setDeleting(false) }
   }
+
+  console.log(budgets)
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -130,12 +142,19 @@ export default function ExpensesPage() {
         </div>
 
         {showFilters && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-gray-800 animate-fade-in">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2 border-t border-gray-800 animate-fade-in">
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Category</label>
               <select className={INPUT} value={filters.category_id} onChange={e => setFilter('category_id', e.target.value)}>
                 <option value="">All categories</option>
                 {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Budget</label>
+              <select className={INPUT} value={filters.budget_id} onChange={e => setFilter('budget_id', e.target.value)}>
+                <option value="">All budgets</option>
+                {budgets.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
               </select>
             </div>
             <div>
@@ -154,7 +173,7 @@ export default function ExpensesPage() {
               </div>
             </div>
             {hasActive && (
-              <div className="col-span-2 sm:col-span-4 flex justify-end">
+              <div className="col-span-2 sm:col-span-5 flex justify-end">
                 <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition-colors">
                   <X size={11} /> Clear filters
                 </button>
@@ -186,8 +205,8 @@ export default function ExpensesPage() {
               <table className="w-full text-sm">
                 <thead className="border-b border-gray-800">
                   <tr>
-                    {['Category', 'Date', 'Notes', 'Amount', ''].map((h, i) => (
-                      <th key={i} className={`py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider ${i === 0 ? 'text-left pl-5' : i === 4 ? 'pr-5' : 'text-left'}`}>
+                    {['Category', 'Date', 'Notes', 'Amount', 'Budget', ''].map((h, i) => (
+                      <th key={i} className={`py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-left ${i === 0 ? 'pl-5' : ''}`}>
                         {h}
                       </th>
                     ))}
@@ -195,7 +214,7 @@ export default function ExpensesPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                   {expenses.map(e => (
-                    <tr key={e.id} className="hover:bg-gray-800/50 transition-colors group">
+                    <tr key={e.id} className="hover:bg-gray-800/50 transition-colors">
                       <td className="py-3 px-4 pl-5">
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-xl flex items-center justify-center text-sm flex-shrink-0"
@@ -212,8 +231,17 @@ export default function ExpensesPage() {
                       <td className="py-3 px-4 font-mono font-medium text-white whitespace-nowrap">
                         -{formatCurrency(e.amount, currency)}
                       </td>
+                      <td className="py-3 px-4 text-left whitespace-nowrap">
+                        {e.budget ? (
+                          <span className="px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 text-xs font-medium">
+                            {e.budget.label}
+                          </span>
+                        ) : (
+                          <span className="text-gray-600 italic text-xs">No budget</span>
+                        )}
+                      </td>
                       <td className="py-3 px-4 pr-5">
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                        <div className="flex items-center gap-1 justify-end">
                           <button onClick={() => { setEditExpense(e); setShowForm(true) }}
                             className="p-1.5 rounded-lg hover:bg-gray-700 text-gray-500 hover:text-white transition-colors">
                             <Pencil size={13} />
@@ -256,7 +284,7 @@ export default function ExpensesPage() {
               <div className="flex items-center justify-between px-5 py-3 border-t border-gray-800">
                 <p className="text-xs text-gray-500">Page {page} of {pages}</p>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page===1}
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                     className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 disabled:opacity-40 transition-colors">
                     <ChevronLeft size={15} />
                   </button>
@@ -270,7 +298,7 @@ export default function ExpensesPage() {
                       </button>
                     )
                   })}
-                  <button onClick={() => setPage(p => Math.min(pages, p+1))} disabled={page===pages}
+                  <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages}
                     className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 disabled:opacity-40 transition-colors">
                     <ChevronRight size={15} />
                   </button>
@@ -281,7 +309,7 @@ export default function ExpensesPage() {
         )}
       </div>
 
-      <ExpenseForm open={showForm} onClose={() => { setShowForm(false); setEditExpense(null) }} onSave={handleSave} expense={editExpense} />
+      <ExpenseForm open={showForm} onClose={() => { setShowForm(false); setEditExpense(null) }} onSave={handleSave} expense={editExpense} budget={budgets} />
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} loading={deleting} title="Delete Expense" message="This expense will be permanently removed." />
     </div>
   )

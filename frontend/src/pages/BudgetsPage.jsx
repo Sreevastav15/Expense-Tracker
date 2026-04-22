@@ -5,7 +5,7 @@ import { formatCurrency, MONTH_NAMES, getErrorMessage } from '../utils/helpers'
 import { PageHeader, EmptyState, Modal, ConfirmDialog, Spinner } from '../components/UI'
 import toast from 'react-hot-toast'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { Plus, PiggyBank, Trash2, Pencil, Loader2 } from 'lucide-react'
+import { Plus, PiggyBank, Trash2, Pencil, Loader2, TrendingUp } from 'lucide-react'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const INPUT  = 'w-full bg-gray-800 border border-gray-700 focus:border-indigo-500 text-white placeholder:text-gray-500 rounded-xl px-4 py-2.5 outline-none transition-colors text-sm'
@@ -112,6 +112,12 @@ export default function BudgetsPage() {
     finally { setDeleting(false) }
   }
 
+  // Compute total spent + remaining across all budgets for the summary banner
+  const totalBudgeted = budgets.reduce((s, b) => s + b.total_amount, 0)
+  const totalSpentAll = budgets.reduce((s, b) => s + (b.spent || 0), 0)
+  const totalMonthlyAllowance = budgets.reduce((s,b) => s + (b.monthly_allowance || 0), 0)
+  const overallProgress = totalBudgeted > 0 ? Math.min(100, (totalSpentAll / totalBudgeted) * 100) : 0
+
   return (
     <div className="space-y-6 animate-fade-in">
       <PageHeader
@@ -134,14 +140,58 @@ export default function BudgetsPage() {
         </div>
       ) : (
         <div className="space-y-6">
+
+          {/* Overall summary banner */}
+          {budgets.length > 1 && (
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <TrendingUp size={16} className="text-indigo-400" />
+                  <p className="text-sm font-semibold text-white">Overall Budget Summary</p>
+                </div>
+                <span className={`text-sm font-mono font-bold ${totalSpentAll > totalBudgeted ? 'text-red-400' : 'text-indigo-400'}`}>
+                  {overallProgress.toFixed(1)}% used
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                {[
+                  { label: 'Total Budgeted', value: formatCurrency(totalBudgeted, currency), color: '#4f46e5' },
+                  { label: 'Total Spent',    value: formatCurrency(totalSpentAll, currency), color: totalSpentAll > totalBudgeted ? '#ef4444' : '#f59e0b' },
+                  { label: 'Remaining',      value: formatCurrency(Math.max(0, totalBudgeted - totalSpentAll), currency), color: '#10b981' },
+                ].map(s => (
+                  <div key={s.label} className="bg-gray-800 rounded-xl p-3">
+                    <p className="text-xs text-gray-500 mb-1">{s.label}</p>
+                    <p className="font-bold text-sm" style={{ color: s.color }}>{s.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${Math.min(100, overallProgress)}%`,
+                    background: totalSpentAll > totalBudgeted ? '#ef4444' : overallProgress > 80 ? '#f59e0b' : '#4f46e5'
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           {budgets.map(budget => {
-            const actuals     = budget.monthly_actuals || []
-            const totalSpent  = actuals.reduce((s, a) => s + a.total, 0)
+            // Use backend-tracked spent value (updated as expenses are added/removed)
+            const totalSpent  = budget.spent || 0
             const remaining   = budget.total_amount - totalSpent
-            const progress    = Math.min(100, (totalSpent / budget.total_amount) * 100)
+            const progress    = budget.total_amount > 0 ? Math.min(100, (totalSpent / budget.total_amount) * 100) : 0
             const over        = totalSpent > budget.total_amount
-            const chartData   = actuals.map(a => ({ name: `${MONTH_NAMES[a.month-1]} ${a.year}`, Actual: a.total, Allowance: budget.monthly_allowance }))
             const barColor    = over ? '#ef4444' : progress > 80 ? '#f59e0b' : '#4f46e5'
+
+            // Build chart from monthly_actuals (all spending since start date, from backend)
+            const actuals   = budget.monthly_actuals || []
+            const chartData = actuals.map(a => ({
+              name:      `${MONTH_NAMES[a.month - 1]} ${a.year}`,
+              Actual:    a.total,
+              Allowance: totalMonthlyAllowance,
+            }))
 
             return (
               <div key={budget.id} className="bg-gray-900 border border-gray-700 rounded-2xl p-5 space-y-5">
@@ -159,12 +209,11 @@ export default function BudgetsPage() {
                   </div>
                 </div>
 
-                {/* Stats */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* Stats — driven by backend `spent` field */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {[
-                    { label: 'Total Budget',      value: formatCurrency(budget.total_amount,         currency), color: '#4f46e5' },
-                    { label: 'Monthly Allowance', value: formatCurrency(budget.monthly_allowance,    currency), color: '#10b981' },
-                    { label: 'Spent So Far',      value: formatCurrency(totalSpent,                  currency), color: over ? '#ef4444' : '#f59e0b' },
+                    { label: 'Total Budget',      value: formatCurrency(budget.total_amount,      currency), color: '#4f46e5' },
+                    { label: 'Spent So Far',      value: formatCurrency(totalSpent,               currency), color: over ? '#ef4444' : '#f59e0b' },
                     { label: 'Remaining',         value: (over ? '-' : '+') + formatCurrency(Math.abs(remaining), currency), color: over ? '#ef4444' : '#6366f1' },
                   ].map(s => (
                     <div key={s.label} className="bg-gray-800 border border-gray-700 rounded-xl p-3">
@@ -174,36 +223,23 @@ export default function BudgetsPage() {
                   ))}
                 </div>
 
-                {/* Progress */}
+                {/* Progress bar */}
                 <div>
                   <div className="flex justify-between text-xs text-gray-500 mb-2">
                     <span>Spent: {progress.toFixed(1)}%</span>
                     <span className={over ? 'text-red-400' : 'text-gray-400'}>
-                      {over ? `${(progress-100).toFixed(1)}% over budget` : `${(100-progress).toFixed(1)}% remaining`}
+                      {over
+                        ? `${(totalSpent / budget.total_amount * 100 - 100).toFixed(1)}% over budget`
+                        : `${(100 - progress).toFixed(1)}% remaining`}
                     </span>
                   </div>
                   <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(100, progress)}%`, background: barColor }} />
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${Math.min(100, progress)}%`, background: barColor }}
+                    />
                   </div>
                 </div>
-
-                {/* Chart */}
-                {chartData.length > 0 && (
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">Allowance vs Actual</p>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={chartData} barGap={6}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                        <XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <Tooltip formatter={v => formatCurrency(v, currency)} {...TT} />
-                        <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
-                        <Bar dataKey="Allowance" fill="#4f46e520" stroke="#4f46e5" strokeWidth={1.5} radius={[4,4,0,0]} maxBarSize={40} />
-                        <Bar dataKey="Actual"    fill="#10b981"                                        radius={[4,4,0,0]} maxBarSize={40} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
               </div>
             )
           })}

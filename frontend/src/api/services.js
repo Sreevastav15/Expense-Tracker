@@ -11,6 +11,7 @@ export const authApi = {
   },
   me: () => api.get('/auth/me'),
   updateProfile: (data) => api.put('/auth/profile', data),
+  forgotPassword: (email) => api.post('/auth/forgot-password', { email }),
 }
 
 // Expenses

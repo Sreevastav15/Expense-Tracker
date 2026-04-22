@@ -30,6 +30,7 @@ class BudgetCreate(BaseModel):
 
 class BudgetUpdate(BaseModel):
     total_amount: Optional[float] = None
+    spent: Optional[float] = None
     months: Optional[int] = None
     label: Optional[str] = None
     start_date: Optional[datetime] = None
@@ -55,6 +56,7 @@ def budget_to_dict(b: models.Budget, db: Session, user_id: int) -> dict:
         "id": b.id,
         "label": b.label,
         "total_amount": b.total_amount,
+        "spent": b.spent,
         "months": b.months,
         "start_date": b.start_date.isoformat(),
         "monthly_allowance": round(monthly_allowance, 2),

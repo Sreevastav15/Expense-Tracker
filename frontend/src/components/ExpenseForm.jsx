@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Modal } from './UI'
-import { categoryApi } from '../api/services'
+import { categoryApi, budgetApi } from '../api/services'
 import { getErrorMessage } from '../utils/helpers'
 import toast from 'react-hot-toast'
 import { Loader2 } from 'lucide-react'
@@ -10,29 +10,47 @@ const nowIso = () => new Date().toISOString().slice(0, 16)
 export default function ExpenseForm({ open, onClose, onSave, expense }) {
   const isEdit = !!expense
   const [categories, setCategories] = useState([])
+  const [budgets, setBudgets]       = useState([])
   const [loading, setLoading]       = useState(false)
-  const [form, setForm]             = useState({ amount: '', category_id: '', date: nowIso(), notes: '' })
+  const [form, setForm]             = useState({
+    amount: '', category_id: '', budget_id: '', date: nowIso(), notes: ''
+  })
 
+  // Load categories and budgets on mount
   useEffect(() => {
-    categoryApi.list()
-      .then(r => {
-        setCategories(r.data)
-        if (!isEdit && r.data.length > 0)
-          setForm(p => ({ ...p, category_id: String(r.data[0].id) }))
+    Promise.all([categoryApi.list(), budgetApi.list()])
+      .then(([catRes, budRes]) => {
+        setCategories(catRes.data)
+        setBudgets(budRes.data)
+        if (!isEdit) {
+          setForm(p => ({
+            ...p,
+            category_id: catRes.data[0]?.id ? String(catRes.data[0].id) : '',
+            budget_id:   '',
+          }))
+        }
       })
       .catch(() => {})
   }, [])
 
+  // Populate form when editing
   useEffect(() => {
     if (expense) {
       setForm({
         amount:      String(expense.amount),
         category_id: String(expense.category_id),
+        budget_id:   expense.budget?.id ? String(expense.budget.id) : (budgets[0]?.id ? String(budgets[0].id) : ''),
         date:        expense.date ? expense.date.slice(0, 16) : nowIso(),
         notes:       expense.notes || '',
       })
     } else {
-      setForm({ amount: '', category_id: categories[0]?.id ? String(categories[0].id) : '', date: nowIso(), notes: '' })
+      setForm({
+        amount: '',
+        category_id: categories[0]?.id ? String(categories[0].id) : '',
+        budget_id:   '',
+        date: nowIso(),
+        notes: '',
+      })
     }
   }, [expense, open])
 
@@ -48,6 +66,7 @@ export default function ExpenseForm({ open, onClose, onSave, expense }) {
       await onSave({
         amount,
         category_id: parseInt(form.category_id),
+        budget_id:   form.budget_id ? parseInt(form.budget_id) : null,
         date:        new Date(form.date).toISOString(),
         notes:       form.notes || null,
       })
@@ -61,6 +80,12 @@ export default function ExpenseForm({ open, onClose, onSave, expense }) {
 
   const INPUT = 'w-full bg-gray-800 border border-gray-700 focus:border-indigo-500 text-white placeholder:text-gray-500 rounded-xl px-4 py-2.5 outline-none transition-colors text-sm'
   const LABEL = 'block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5'
+
+  // Find selected budget to show remaining info
+  const selectedBudget = budgets.find(b => String(b.id) === form.budget_id)
+  const budgetRemaining = selectedBudget
+    ? selectedBudget.total_amount - (selectedBudget.spent || 0)
+    : null
 
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Expense' : 'Add Expense'}>
@@ -77,6 +102,36 @@ export default function ExpenseForm({ open, onClose, onSave, expense }) {
               value={form.amount} onChange={e => set('amount', e.target.value)} required
             />
           </div>
+        </div>
+
+        {/* Budget */}
+        <div>
+          <label className={LABEL}>Budget *</label>
+          <select
+            className={INPUT}
+            value={form.budget_id}
+            onChange={e => set('budget_id', e.target.value)}
+          >
+            <option value="">Select a budget…</option>
+            {budgets.map(b => {
+              const spent     = b.spent || 0
+              const remaining = b.total_amount - spent
+              const over      = remaining < 0
+              return (
+                <option key={b.id} value={b.id}>
+                  {b.label || 'Budget Plan'} — ${b.total_amount.toFixed(2)} ({over ? 'over by $' + Math.abs(remaining).toFixed(2) : '$' + remaining.toFixed(2) + ' left'})
+                </option>
+              )
+            })}
+          </select>
+          {/* Budget remaining hint */}
+          {selectedBudget && (
+            <p className={`text-xs mt-1.5 ${budgetRemaining < 0 ? 'text-red-400' : budgetRemaining < selectedBudget.total_amount * 0.1 ? 'text-yellow-400' : 'text-gray-500'}`}>
+              {budgetRemaining >= 0
+                ? `$${budgetRemaining.toFixed(2)} remaining of $${selectedBudget.total_amount.toFixed(2)}`
+                : `Over budget by $${Math.abs(budgetRemaining).toFixed(2)}`}
+            </p>
+          )}
         </div>
 
         {/* Category */}
