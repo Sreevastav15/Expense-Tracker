@@ -36,6 +36,7 @@ export const budgetApi = {
   list: () => api.get('/budgets'),
   create: (data) => api.post('/budgets', data),
   update: (id, data) => api.put(`/budgets/${id}`, data),
+  transfer: (data) => api.post('/budgets/transfer', data),
   delete: (id) => api.delete(`/budgets/${id}`),
 }
 

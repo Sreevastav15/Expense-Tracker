@@ -35,6 +35,17 @@ class BudgetUpdate(BaseModel):
     label: Optional[str] = None
     start_date: Optional[datetime] = None
 
+class BudgetTransferRequest(BaseModel):
+    from_budget_id: int
+    to_budget_id: int
+    amount: float
+
+    @validator("amount")
+    def amount_positive(cls, v):
+        if v <= 0:
+            raise ValueError("Amount must be positive")
+        return v
+
 def budget_to_dict(b: models.Budget, db: Session, user_id: int) -> dict:
     # Calculate monthly allowance
     monthly_allowance = b.total_amount / b.months
@@ -116,6 +127,44 @@ def update_budget(
     db.commit()
     db.refresh(budget)
     return budget_to_dict(budget, db, current_user.id)
+
+@router.post("/transfer")
+def transfer_budget(
+    data: BudgetTransferRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+
+    if data.from_budget_id == data.to_budget_id:
+        raise HTTPException(status_code=400, detail="Can not transfer amount to same budget")
+
+    from_budget=db.query(models.Budget).filter(
+        models.Budget.id == data.from_budget_id,
+        models.Budget.user_id == current_user.id
+    ).first()
+
+    to_budget=db.query(models.Budget).filter(
+        models.Budget.id == data.to_budget_id,
+        models.Budget.user_id == current_user.id
+    ).first()
+
+    if not from_budget or not to_budget:
+        raise HTTPException(status_code=404, detail="Budget doesn't exist")
+    
+    if data.amount > 0:
+        if from_budget.total_amount < data.amount:
+            raise HTTPException(status_code=400, detail="Transfer amount greater than total amount")
+        if from_budget.total_amount - from_budget.spent < data.amount:
+            raise HTTPException(status_code=400, detail="Insufficient budget")
+        try:
+            from_budget.total_amount -= data.amount
+            to_budget.total_amount += data.amount
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Transfer Failed: {str(e)}")
+    
+    return ("Transfer Successful")
 
 @router.delete("/{budget_id}", status_code=204)
 def delete_budget(

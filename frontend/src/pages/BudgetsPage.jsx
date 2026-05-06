@@ -5,12 +5,12 @@ import { formatCurrency, MONTH_NAMES, getErrorMessage } from '../utils/helpers'
 import { PageHeader, EmptyState, Modal, ConfirmDialog, Spinner } from '../components/UI'
 import toast from 'react-hot-toast'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { Plus, PiggyBank, Trash2, Pencil, Loader2, TrendingUp } from 'lucide-react'
+import { Plus, PiggyBank, Trash2, Pencil, Loader2, TrendingUp, ArrowLeftRight } from 'lucide-react'
 
 const today = () => new Date().toISOString().slice(0, 10)
-const INPUT  = 'w-full bg-gray-800 border border-gray-700 focus:border-indigo-500 text-white placeholder:text-gray-500 rounded-xl px-4 py-2.5 outline-none transition-colors text-sm'
-const LABEL  = 'block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5'
-const TT     = { contentStyle: { background: '#111827', border: '1px solid #374151', borderRadius: 10, fontFamily: 'inherit', fontSize: 13 }, labelStyle: { color: '#9ca3af' }, itemStyle: { color: '#fff' } }
+const INPUT = 'w-full bg-gray-800 border border-gray-700 focus:border-indigo-500 text-white placeholder:text-gray-500 rounded-xl px-4 py-2.5 outline-none transition-colors text-sm'
+const LABEL = 'block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5'
+const TT = { contentStyle: { background: '#111827', border: '1px solid #374151', borderRadius: 10, fontFamily: 'inherit', fontSize: 13 }, labelStyle: { color: '#9ca3af' }, itemStyle: { color: '#fff' } }
 
 function BudgetForm({ open, onClose, onSave, budget }) {
   const [loading, setLoading] = useState(false)
@@ -19,7 +19,7 @@ function BudgetForm({ open, onClose, onSave, budget }) {
 
   useEffect(() => {
     if (budget) setForm({ label: budget.label || '', total_amount: String(budget.total_amount), months: String(budget.months), start_date: budget.start_date?.slice(0, 10) || today() })
-    else        setForm({ label: '', total_amount: '', months: '', start_date: today() })
+    else setForm({ label: '', total_amount: '', months: '', start_date: today() })
   }, [budget, open])
 
   const handleSubmit = async e => {
@@ -80,6 +80,151 @@ function BudgetForm({ open, onClose, onSave, budget }) {
   )
 }
 
+// In BudgetsPage.jsx — add this component before BudgetForm
+
+function TransferBudgetForm({ open, onClose, budgets, currency }) {
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState({ from_budget_id: '', to_budget_id: '', amount: '' })
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  useEffect(() => {
+    if (!open) setForm({ from_budget_id: '', to_budget_id: '', amount: '' })
+  }, [open])
+
+  const swap = () => setForm(p => ({ ...p, from_budget_id: p.to_budget_id, to_budget_id: p.from_budget_id }))
+
+  const handleSubmit = async e => {
+    e.preventDefault()
+    const amount = parseInt(form.amount)
+    if (!form.from_budget_id) { toast.error('Select a source budget'); return }
+    if (!form.to_budget_id) { toast.error('Select a destination budget'); return }
+    if (form.from_budget_id === form.to_budget_id) { toast.error('Source and destination must differ'); return }
+    if (!amount || amount <= 0) { toast.error('Amount should be positive'); return }
+
+    const fromBudget = budgets.find(b => b.id === parseInt(form.from_budget_id))
+    const available = fromBudget ? (fromBudget.total_amount - (fromBudget.spent || 0)) : 0
+    if (amount > available) { toast.error(`Insufficient budget — only ${formatCurrency(available, currency)} available`); return }
+
+    setLoading(true)
+    try {
+      await budgetApi.transfer({
+        from_budget_id: parseInt(form.from_budget_id),
+        to_budget_id: parseInt(form.to_budget_id),
+        amount,
+      })
+      toast.success('Transfer successful')
+      onClose()
+    } catch (err) { toast.error(getErrorMessage(err)) }
+    finally { setLoading(false) }
+  }
+
+  const fromBudget = budgets.find(b => b.id === parseInt(form.from_budget_id))
+  const toBudget = budgets.find(b => b.id === parseInt(form.to_budget_id))
+  const amount = parseInt(form.amount)
+  const showPreview = amount > 0 && fromBudget && toBudget && form.from_budget_id !== form.to_budget_id
+
+  return (
+    <Modal open={open} onClose={onClose} title="Transfer Between Budgets">
+      <form onSubmit={handleSubmit} className="space-y-4">
+
+        {/* From */}
+        <div>
+          <label className={LABEL}>From Budget *</label>
+          <select
+            className={INPUT}
+            value={form.from_budget_id}
+            onChange={e => set('from_budget_id', e.target.value)}
+            required
+          >
+            <option value="">Select source budget…</option>
+            {budgets.map(b => {
+              const available = b.total_amount - (b.spent || 0)
+              return (
+                <option key={b.id} value={b.id}>
+                  {b.label || 'Budget Plan'} — {formatCurrency(available, currency)} available
+                </option>
+              )
+            })}
+          </select>
+        </div>
+
+        {/* Swap button */}
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-gray-800" />
+          <button
+            type="button"
+            onClick={swap}
+            className="p-2 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+            title="Swap budgets"
+          >
+            <ArrowLeftRight size={14} />
+          </button>
+          <div className="flex-1 h-px bg-gray-800" />
+        </div>
+
+        {/* To */}
+        <div>
+          <label className={LABEL}>To Budget *</label>
+          <select
+            className={INPUT}
+            value={form.to_budget_id}
+            onChange={e => set('to_budget_id', e.target.value)}
+            required
+          >
+            <option value="">Select destination budget…</option>
+            {budgets.map(b => (
+              <option key={b.id} value={b.id}>
+                {b.label || 'Budget Plan'} — {formatCurrency(b.total_amount, currency)} total
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Amount */}
+        <div>
+          <label className={LABEL}>Amount *</label>
+          <input
+            className={INPUT}
+            type="number"
+            min="1"
+            step="1"
+            placeholder="0"
+            value={form.amount}
+            onChange={e => set('amount', e.target.value)}
+            required
+          />
+          <p className="text-xs text-gray-600 mt-1.5">Must be a whole number (no decimals)</p>
+        </div>
+
+        {/* Preview */}
+        {showPreview && (
+          <div className="flex items-center gap-3 bg-indigo-600/10 border border-indigo-600/20 rounded-xl p-3">
+            <div className="w-8 h-8 bg-indigo-600/20 rounded-lg flex items-center justify-center">
+              <ArrowLeftRight size={15} className="text-indigo-400" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Transferring</p>
+              <p className="text-white font-bold">{formatCurrency(amount, currency)}</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {fromBudget.label || 'Budget Plan'} → {toBudget.label || 'Budget Plan'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-1">
+          <button type="button" onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-medium px-4 py-2.5 rounded-xl transition-colors text-sm">
+            Cancel
+          </button>
+          <button type="submit" disabled={loading} className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium px-4 py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm">
+            {loading ? <Loader2 size={15} className="animate-spin" /> : 'Confirm Transfer'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 export default function BudgetsPage() {
   const { user } = useAuth()
   const currency = user?.currency || 'USD'
@@ -87,6 +232,7 @@ export default function BudgetsPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editBudget, setEditBudget] = useState(null)
+  const [showTransfer, setShowTransfer] = useState(false)
   const [deleteId, setDeleteId] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -101,9 +247,10 @@ export default function BudgetsPage() {
 
   const handleSave = async data => {
     if (editBudget) { await budgetApi.update(editBudget.id, data); toast.success('Budget updated') }
-    else            { await budgetApi.create(data);                  toast.success('Budget created') }
+    else { await budgetApi.create(data); toast.success('Budget created') }
     setEditBudget(null); load()
   }
+
 
   const handleDelete = async () => {
     setDeleting(true)
@@ -115,7 +262,7 @@ export default function BudgetsPage() {
   // Compute total spent + remaining across all budgets for the summary banner
   const totalBudgeted = budgets.reduce((s, b) => s + b.total_amount, 0)
   const totalSpentAll = budgets.reduce((s, b) => s + (b.spent || 0), 0)
-  const totalMonthlyAllowance = budgets.reduce((s,b) => s + (b.monthly_allowance || 0), 0)
+  const totalMonthlyAllowance = budgets.reduce((s, b) => s + (b.monthly_allowance || 0), 0)
   const overallProgress = totalBudgeted > 0 ? Math.min(100, (totalSpentAll / totalBudgeted) * 100) : 0
 
   return (
@@ -124,9 +271,18 @@ export default function BudgetsPage() {
         title="Budgets"
         description="Set spending limits and track your progress"
         action={
-          <button onClick={() => { setEditBudget(null); setShowForm(true) }} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2 rounded-xl transition-colors text-sm">
-            <Plus size={15} /> New Budget
-          </button>
+          <div className='flex gap-2'>
+            <button onClick={() => { setEditBudget(null); setShowForm(true) }} className="flex min-w-30 items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-4 py-2 rounded-xl transition-colors text-sm">
+              <Plus size={15} /> New Budget
+            </button>
+            <button
+              onClick={() => setShowTransfer(true)}
+              disabled={budgets.length < 2}
+              className="flex min-w-30 items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white font-medium px-4 py-2 rounded-xl transition-colors text-sm"
+            >
+              <ArrowLeftRight size={15} /> Transfer
+            </button>
+          </div>
         }
       />
 
@@ -156,8 +312,8 @@ export default function BudgetsPage() {
               <div className="grid grid-cols-3 gap-3 mb-3">
                 {[
                   { label: 'Total Budgeted', value: formatCurrency(totalBudgeted, currency), color: '#4f46e5' },
-                  { label: 'Total Spent',    value: formatCurrency(totalSpentAll, currency), color: totalSpentAll > totalBudgeted ? '#ef4444' : '#f59e0b' },
-                  { label: 'Remaining',      value: formatCurrency(Math.max(0, totalBudgeted - totalSpentAll), currency), color: '#10b981' },
+                  { label: 'Total Spent', value: formatCurrency(totalSpentAll, currency), color: totalSpentAll > totalBudgeted ? '#ef4444' : '#f59e0b' },
+                  { label: 'Remaining', value: formatCurrency(Math.max(0, totalBudgeted - totalSpentAll), currency), color: '#10b981' },
                 ].map(s => (
                   <div key={s.label} className="bg-gray-800 rounded-xl p-3">
                     <p className="text-xs text-gray-500 mb-1">{s.label}</p>
@@ -179,17 +335,17 @@ export default function BudgetsPage() {
 
           {budgets.map(budget => {
             // Use backend-tracked spent value (updated as expenses are added/removed)
-            const totalSpent  = budget.spent || 0
-            const remaining   = budget.total_amount - totalSpent
-            const progress    = budget.total_amount > 0 ? Math.min(100, (totalSpent / budget.total_amount) * 100) : 0
-            const over        = totalSpent > budget.total_amount
-            const barColor    = over ? '#ef4444' : progress > 80 ? '#f59e0b' : '#4f46e5'
+            const totalSpent = budget.spent || 0
+            const remaining = budget.total_amount - totalSpent
+            const progress = budget.total_amount > 0 ? Math.min(100, (totalSpent / budget.total_amount) * 100) : 0
+            const over = totalSpent > budget.total_amount
+            const barColor = over ? '#ef4444' : progress > 80 ? '#f59e0b' : '#4f46e5'
 
             // Build chart from monthly_actuals (all spending since start date, from backend)
-            const actuals   = budget.monthly_actuals || []
+            const actuals = budget.monthly_actuals || []
             const chartData = actuals.map(a => ({
-              name:      `${MONTH_NAMES[a.month - 1]} ${a.year}`,
-              Actual:    a.total,
+              name: `${MONTH_NAMES[a.month - 1]} ${a.year}`,
+              Actual: a.total,
               Allowance: totalMonthlyAllowance,
             }))
 
@@ -212,9 +368,9 @@ export default function BudgetsPage() {
                 {/* Stats — driven by backend `spent` field */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {[
-                    { label: 'Total Budget',      value: formatCurrency(budget.total_amount,      currency), color: '#4f46e5' },
-                    { label: 'Spent So Far',      value: formatCurrency(totalSpent,               currency), color: over ? '#ef4444' : '#f59e0b' },
-                    { label: 'Remaining',         value: (over ? '-' : '+') + formatCurrency(Math.abs(remaining), currency), color: over ? '#ef4444' : '#6366f1' },
+                    { label: 'Total Budget', value: formatCurrency(budget.total_amount, currency), color: '#4f46e5' },
+                    { label: 'Spent So Far', value: formatCurrency(totalSpent, currency), color: over ? '#ef4444' : '#f59e0b' },
+                    { label: 'Remaining', value: (over ? '-' : '+') + formatCurrency(Math.abs(remaining), currency), color: over ? '#ef4444' : '#6366f1' },
                   ].map(s => (
                     <div key={s.label} className="bg-gray-800 border border-gray-700 rounded-xl p-3">
                       <p className="text-xs text-gray-500 mb-1">{s.label}</p>
@@ -247,6 +403,7 @@ export default function BudgetsPage() {
       )}
 
       <BudgetForm open={showForm} onClose={() => { setShowForm(false); setEditBudget(null) }} onSave={handleSave} budget={editBudget} />
+      <TransferBudgetForm open={showTransfer} onClose={() => { setShowTransfer(false); load() }} budgets={budgets} currency={currency} />
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} loading={deleting} title="Delete Budget" message="This budget and its configuration will be permanently deleted." />
     </div>
   )
