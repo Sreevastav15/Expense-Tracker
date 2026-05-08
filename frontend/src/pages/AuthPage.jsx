@@ -140,7 +140,7 @@ export default function AuthPage({ mode }) {
     } catch (err) {
       const status = err?.response?.status
       const detail = err?.response?.data?.detail || ''
-
+      
       // Specific, actionable toast messages for common auth errors
       if (status === 401 || detail.toLowerCase().includes('invalid')) {
         toast.error('Incorrect email or password. Please try again.')

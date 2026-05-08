@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, validator
+from jose import jwt, JWTError
+from auth import SECRET_KEY, ALGORITHM
 from typing import Optional
 from datetime import timedelta
 from database import get_db
@@ -54,6 +56,10 @@ class TokenResponse(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
 
 @router.post("/signup", response_model=TokenResponse)
 def signup(data: SignupRequest, db: Session = Depends(get_db)):
@@ -132,6 +138,56 @@ def update_profile(
     db.commit()
     db.refresh(current_user)
     return {"id": current_user.id, "name": current_user.name, "email": current_user.email, "currency": current_user.currency}
+
+@router.post("/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(
+            data.token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
+
+        user_id = payload.get("sub")
+        token_type = payload.get("type")
+
+        if token_type != "password_reset":
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid reset token"
+            )
+
+    except JWTError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or expired reset token"
+        )
+
+    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    try:
+        user.hashed_password = get_password_hash(data.password)
+
+        db.commit()
+        db.refresh(user)
+
+        return {
+            "message": "Password reset successful"
+        }
+
+    except Exception as e:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset password: {str(e)}"
+        )
 
 @router.post("/forgot-password")
 def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
